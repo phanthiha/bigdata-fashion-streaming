@@ -578,8 +578,7 @@ with st.sidebar:
     if st.button("🔌 Kiểm tra kết nối OCI", disabled=not oci_ready,
                  help="Gọi metadata của broker để xác nhận username/token và topic."):
         with st.spinner("Đang kiểm tra kết nối tới OCI Streaming..."):
-            ok, message = check_oci_connection()
-        (st.success if ok else st.error)(message)
+            st.session_state["oci_check"] = check_oci_connection()
     if not oci_ready:
         st.caption("Thêm SASL_USERNAME và OCI_AUTH_TOKEN vào Streamlit Secrets "
                    "(Manage app → Settings → Secrets) để bật chế độ OCI.")
@@ -591,6 +590,12 @@ if st.session_state.get("model_error"):
         "Không tải được RoBERTa nên ứng dụng đã tự chuyển sang bộ luật. "
         f"Chi tiết: {st.session_state['model_error'][:200]}"
     )
+
+
+oci_check = st.session_state.get("oci_check")
+if oci_check:
+    ok_check, message_check = oci_check
+    (st.success if ok_check else st.error)(f"Kiểm tra kết nối OCI: {message_check}")
 
 col_run, col_stop = st.columns([1, 5])
 start = col_run.button("▶️ Bắt đầu streaming", type="primary", width="stretch")
