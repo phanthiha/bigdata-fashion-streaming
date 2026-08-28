@@ -70,6 +70,34 @@ SASL_USERNAME = secret("SASL_USERNAME", "")
 OCI_AUTH_TOKEN = secret("OCI_AUTH_TOKEN", "")
 
 
+
+def check_oci_connection(timeout: float = 10.0):
+    """Thử lấy metadata từ OCI Streaming để xác nhận cấu hình đã thông."""
+    if not (SASL_USERNAME and OCI_AUTH_TOKEN):
+        return False, "Chưa có SASL_USERNAME / OCI_AUTH_TOKEN trong Secrets."
+    try:
+        from confluent_kafka.admin import AdminClient
+        import certifi
+    except Exception as exc:
+        return False, f"Thiếu thư viện confluent-kafka: {exc}"
+    try:
+        admin = AdminClient({
+            "bootstrap.servers": BOOTSTRAP_SERVERS,
+            "security.protocol": "SASL_SSL",
+            "sasl.mechanism": "PLAIN",
+            "sasl.username": SASL_USERNAME,
+            "sasl.password": OCI_AUTH_TOKEN,
+            "ssl.ca.location": certifi.where(),
+        })
+        meta = admin.list_topics(timeout=timeout)
+        topics = sorted(meta.topics.keys())
+        if TOPIC in meta.topics:
+            return True, f"Kết nối OK - tìm thấy topic '{TOPIC}' ({len(topics)} topic khả dụng)."
+        return False, (f"Đăng nhập được nhưng không thấy topic '{TOPIC}'. "
+                       f"Topic khả dụng: {', '.join(topics[:10]) or 'không có'}")
+    except Exception as exc:
+        return False, f"Không kết nối được OCI: {exc}"
+
 # ==============================================================
 # 2. BỘ PHÂN TÍCH CẢM XÚC (RoBERTa + fallback luật)
 # ==============================================================
@@ -543,8 +571,18 @@ with st.sidebar:
 
     st.divider()
     oci_ready = bool(SASL_USERNAME and OCI_AUTH_TOKEN)
-    st.write("**Trạng thái OCI:**", "✅ đã có secrets" if oci_ready else "⚠️ chưa cấu hình")
+    st.write("**Trạng thái OCI:**",
+             "✅ đã cấu hình" if oci_ready else "⚠️ chưa cấu hình")
     st.caption(f"Topic: `{TOPIC}`")
+    st.caption(f"Broker: `{BOOTSTRAP_SERVERS}`")
+    if st.button("🔌 Kiểm tra kết nối OCI", disabled=not oci_ready,
+                 help="Gọi metadata của broker để xác nhận username/token và topic."):
+        with st.spinner("Đang kiểm tra kết nối tới OCI Streaming..."):
+            ok, message = check_oci_connection()
+        (st.success if ok else st.error)(message)
+    if not oci_ready:
+        st.caption("Thêm SASL_USERNAME và OCI_AUTH_TOKEN vào Streamlit Secrets "
+                   "(Manage app → Settings → Secrets) để bật chế độ OCI.")
 
 analyzer, model_name = load_sentiment_model(use_transformer)
 st.info(f"Mô hình đang dùng: **{model_name}**")
