@@ -1,0 +1,23 @@
+# Secrets
+.streamlit/secrets.toml
+*.env
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+env/
+
+# Dữ liệu lớn / file cài đặt
+*.gz
+*.zip
+*.exe
+AMAZON_FASHION*
+!data/sample_events.jsonl
+
+# OS / IDE
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
