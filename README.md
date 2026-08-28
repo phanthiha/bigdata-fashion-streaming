@@ -45,6 +45,13 @@ streamlit run app.py
   SASL username và Auth Token của OCI ở dạng plaintext → **hãy revoke/rotate Auth Token đó**
   trong OCI Console (Identity → Users → Auth Tokens) trước khi chia sẻ repo công khai.
 
+
+## 🌐 App2 – Wikimedia streaming
+
+Repo còn chứa ứng dụng thứ hai trong thư mục `app2/`: stream sự kiện thay đổi của Wikipedia
+(Wikimedia EventStreams) và phân lớp thực thể phát sinh sự kiện (bot / ẩn danh / hệ thống / định danh).
+Chi tiết trong [app2/README.md](app2/README.md); deploy với **Main file path** = `app2/app.py`.
+
 ## 📁 Cấu trúc
 
 ```
