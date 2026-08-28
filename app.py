@@ -71,6 +71,35 @@ OCI_AUTH_TOKEN = secret("OCI_AUTH_TOKEN", "")
 
 
 
+def resolve_topic(timeout: float = 10.0):
+    """Trả về (topic sẽ dùng, ghi chú). Tự chọn topic khả dụng nếu tên trong cấu hình không tồn tại."""
+    try:
+        from confluent_kafka.admin import AdminClient
+        import certifi
+
+        meta = AdminClient({
+            "bootstrap.servers": BOOTSTRAP_SERVERS,
+            "security.protocol": "SASL_SSL",
+            "sasl.mechanism": "PLAIN",
+            "sasl.username": SASL_USERNAME,
+            "sasl.password": OCI_AUTH_TOKEN,
+            "ssl.ca.location": certifi.where(),
+        }).list_topics(timeout=timeout)
+    except Exception:
+        return TOPIC, ""
+
+    if TOPIC in meta.topics:
+        return TOPIC, ""
+
+    candidates = sorted(t for t in meta.topics if not t.startswith("__"))
+    if not candidates:
+        return TOPIC, ""
+
+    best = min(candidates, key=lambda t: (0 if (t in TOPIC or TOPIC in t) else 1, len(t)))
+    return best, (f"Không tìm thấy topic '{TOPIC}' trên stream pool. "
+                  f"Đang dùng topic '{best}'. Sửa TOPIC trong Streamlit Secrets để dùng lâu dài.")
+
+
 def check_oci_connection(timeout: float = 10.0):
     """Thử lấy metadata từ OCI Streaming để xác nhận cấu hình đã thông."""
     if not (SASL_USERNAME and OCI_AUTH_TOKEN):
@@ -416,6 +445,10 @@ def run_oci_stream(source_name, analyzer, duration, max_events, placeholder, mod
         )
         return pd.DataFrame()
 
+    active_topic, topic_note = resolve_topic()
+    if topic_note:
+        st.warning(topic_note)
+
     run_id = uuid.uuid4().hex[:8]
     common = {
         "bootstrap.servers": BOOTSTRAP_SERVERS,
@@ -456,7 +489,7 @@ def run_oci_stream(source_name, analyzer, duration, max_events, placeholder, mod
                 local_queue.put(payload)
                 if not state["fallback"]:
                     try:
-                        producer.produce(TOPIC, value=payload,
+                        producer.produce(active_topic, value=payload,
                                          on_delivery=delivery_report)
                         producer.poll(0)
                     except Exception as exc:
@@ -477,7 +510,7 @@ def run_oci_stream(source_name, analyzer, duration, max_events, placeholder, mod
     try:
         producer = Producer(producer_conf)
         consumer = Consumer(consumer_conf)
-        consumer.subscribe([TOPIC])
+        consumer.subscribe([active_topic])
     except Exception as exc:
         st.error(f"Không kết nối được OCI Streaming: {exc}")
         return pd.DataFrame()
