@@ -67,6 +67,51 @@ OCI_AUTH_TOKEN = secret("OCI_AUTH_TOKEN", "")
 
 
 
+def test_produce(timeout: float = 15.0):
+    """Gửi thử 1 bản ghi lên OCI và chờ xác nhận -> chẩn đoán quyền publish."""
+    if not (SASL_USERNAME and OCI_AUTH_TOKEN):
+        return False, "Chưa cấu hình SASL_USERNAME / OCI_AUTH_TOKEN."
+    try:
+        from confluent_kafka import Producer
+        import certifi
+    except Exception as exc:
+        return False, f"Thiếu thư viện confluent-kafka: {exc}"
+
+    topic, _note = resolve_topic()
+    result = {}
+
+    def _cb(err, msg):
+        result["err"] = err
+        result["msg"] = msg
+
+    try:
+        probe = Producer({
+            "bootstrap.servers": BOOTSTRAP_SERVERS,
+            "security.protocol": "SASL_SSL",
+            "sasl.mechanism": "PLAIN",
+            "sasl.username": SASL_USERNAME,
+            "sasl.password": OCI_AUTH_TOKEN,
+            "ssl.ca.location": certifi.where(),
+            "client.id": "probe",
+            "acks": "1",
+            "message.timeout.ms": int(timeout * 1000),
+        })
+        probe.produce(topic, value=json.dumps({"probe": True}).encode("utf-8"),
+                      on_delivery=_cb)
+        probe.flush(timeout)
+    except Exception as exc:
+        return False, f"Lỗi khi gửi thử: {exc}"
+
+    if "err" not in result:
+        return False, (f"Không nhận được phản hồi sau {timeout:.0f}s - bản ghi vẫn nằm "
+                       f"trong hàng đợi của client (topic '{topic}').")
+    if result["err"]:
+        return False, f"Broker từ chối bản ghi: {result['err']} (topic '{topic}')."
+    msg = result["msg"]
+    return True, (f"Gửi thành công 1 bản ghi lên topic '{topic}' "
+                  f"(partition {msg.partition()}, offset {msg.offset()}).")
+
+
 def check_oci_connection(timeout: float = 10.0):
     """Thử lấy metadata từ OCI Streaming để xác nhận cấu hình đã thông."""
     if not (SASL_USERNAME and OCI_AUTH_TOKEN):
@@ -607,6 +652,10 @@ with st.sidebar:
                  help="Gọi metadata của broker để xác nhận username/token và topic."):
         with st.spinner("Đang kiểm tra kết nối tới OCI Streaming..."):
             st.session_state["oci_check"] = check_oci_connection()
+    if st.button("📤 Gửi thử 1 bản ghi lên OCI", disabled=not oci_ready,
+                 help="Kiểm tra quyền publish: gửi 1 bản ghi và chờ xác nhận từ broker."):
+        with st.spinner("Đang gửi thử lên OCI Streaming..."):
+            st.session_state["oci_check"] = test_produce()
     if not oci_ready:
         st.caption("Thêm SASL_USERNAME và OCI_AUTH_TOKEN vào Streamlit Secrets "
                    "(Manage app → Settings → Secrets) để bật chế độ OCI.")
