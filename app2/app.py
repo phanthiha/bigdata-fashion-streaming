@@ -621,6 +621,10 @@ def run_kafka_stream(use_live, duration, max_events, wiki_filter, placeholder, m
 st.title("🌐 Phân tích nguồn gốc và phân lớp dữ liệu thời gian thực")
 st.caption("Wikimedia EventStreams (SSE) → Phân lớp thực thể → OCI Streaming (Kafka) → Dashboard")
 
+st.markdown(
+    "> Dạ em chào Thầy! Em là **Phan Thị Hà** — MSHV: **C25611256**."
+)
+
 with st.sidebar:
     st.header("⚙️ Cấu hình")
 
@@ -660,6 +664,10 @@ with st.sidebar:
         st.caption("Thêm SASL_USERNAME và OCI_AUTH_TOKEN vào Streamlit Secrets "
                    "(Manage app → Settings → Secrets) để bật chế độ OCI.")
     st.caption(f"Nguồn SSE: `{WIKI_SSE_URL}`")
+
+    st.divider()
+    st.markdown("**Học viên thực hiện**")
+    st.markdown("Phan Thị Hà  \nMSHV: `C25611256`")
 
 
 oci_check = st.session_state.get("oci_check")

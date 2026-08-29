@@ -637,6 +637,10 @@ def run_oci_stream(source_name, analyzer, duration, max_events, placeholder, mod
 st.title("📊 Big Data Streaming – Phân tích độ hài lòng khách hàng")
 st.caption("Amazon Fashion → Phân tích cảm xúc (RoBERTa) → OCI Streaming (Kafka) → Dashboard thời gian thực")
 
+st.markdown(
+    "> Dạ em chào Thầy! Em là **Phan Thị Hà** — MSHV: **C25611256**."
+)
+
 with st.sidebar:
     st.header("⚙️ Cấu hình")
 
@@ -679,6 +683,10 @@ with st.sidebar:
     if not oci_ready:
         st.caption("Thêm SASL_USERNAME và OCI_AUTH_TOKEN vào Streamlit Secrets "
                    "(Manage app → Settings → Secrets) để bật chế độ OCI.")
+
+    st.divider()
+    st.markdown("**Học viên thực hiện**")
+    st.markdown("Phan Thị Hà  \nMSHV: `C25611256`")
 
 analyzer, model_name = load_sentiment_model(use_transformer)
 st.info(f"Mô hình đang dùng: **{model_name}**")
