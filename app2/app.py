@@ -323,6 +323,17 @@ def timeline_frame(rows):
     return pd.DataFrame({"Sự kiện": [counts.get(s, 0) for s in idx]}, index=idx)
 
 
+def update_progress(bar, consumed, max_events, elapsed, duration):
+    """Cập nhật thanh tiến trình theo cả số sự kiện lẫn thời gian còn lại."""
+    fraction = min(max(consumed / max(max_events, 1), elapsed / max(duration, 1)), 1.0)
+    remaining = max(duration - elapsed, 0)
+    bar.progress(
+        fraction,
+        text=(f"Đã nhận {consumed:,}/{max_events:,} sự kiện · "
+              f"{elapsed:.0f}s/{duration}s · còn ~{remaining:.0f}s"),
+    )
+
+
 # ==============================================================
 # 5. DASHBOARD
 # ==============================================================
@@ -445,6 +456,7 @@ def run_stream(use_live, duration, max_events, wiki_filter, placeholder, mode_la
     thread.start()
 
     rows, started_at, last_render = [], time.monotonic(), 0.0
+    progress = st.progress(0.0, text="Đang kết nối nguồn dữ liệu...")
     try:
         while time.monotonic() - started_at < duration and stats["consumed"] < max_events:
             try:
@@ -460,12 +472,16 @@ def run_stream(use_live, duration, max_events, wiki_filter, placeholder, mode_la
             if now - last_render >= 0.5:
                 render_dashboard(placeholder, rows, stats, started_at, duration,
                                  status["message"], mode_label)
+                update_progress(progress, stats["consumed"], max_events,
+                                now - started_at, duration)
                 last_render = now
     finally:
         stop_event.set()
 
     render_dashboard(placeholder, rows, stats, started_at, duration,
                      status["message"], mode_label)
+    progress.progress(1.0, text=f"Hoàn tất: {len(rows):,} sự kiện "
+                                f"trong {time.monotonic() - started_at:.0f} giây")
     return pd.DataFrame(rows)
 
 
@@ -558,6 +574,7 @@ def run_kafka_stream(use_live, duration, max_events, wiki_filter, placeholder, m
     thread.start()
 
     rows, started_at, last_render = [], time.monotonic(), 0.0
+    progress = st.progress(0.0, text="Đang kết nối nguồn dữ liệu...")
     try:
         while time.monotonic() - started_at < duration and stats["consumed"] < max_events:
             elapsed = time.monotonic() - started_at
@@ -597,6 +614,8 @@ def run_kafka_stream(use_live, duration, max_events, wiki_filter, placeholder, m
             if now - last_render >= 0.5:
                 render_dashboard(placeholder, rows, stats, started_at, duration,
                                  status["message"], mode_label)
+                update_progress(progress, stats["consumed"], max_events,
+                                now - started_at, duration)
                 last_render = now
     finally:
         stop_event.set()
@@ -612,6 +631,8 @@ def run_kafka_stream(use_live, duration, max_events, wiki_filter, placeholder, m
 
     render_dashboard(placeholder, rows, stats, started_at, duration,
                      status["message"], mode_label)
+    progress.progress(1.0, text=f"Hoàn tất: {len(rows):,} sự kiện "
+                                f"trong {time.monotonic() - started_at:.0f} giây")
     return pd.DataFrame(rows)
 
 
@@ -702,12 +723,39 @@ if "last_result_app2" in st.session_state and not st.session_state["last_result_
     st.subheader("Kết quả chi tiết")
     cols = [c for c in ["received_at", "wiki", "event_type", "page", "user", "actor"]
             if c in df.columns]
-    st.dataframe(df[cols], width="stretch", hide_index=True)
+    export_df = df[cols]
+
+    actor_counts = export_df["actor"].value_counts() if "actor" in export_df else pd.Series(dtype=int)
+    wiki_top = export_df["wiki"].value_counts().index[0] if "wiki" in export_df and len(export_df) else "—"
+    if "received_at" in export_df and len(export_df):
+        span = f"{export_df['received_at'].iloc[0][11:19]} → {export_df['received_at'].iloc[-1][11:19]} UTC"
+    else:
+        span = "—"
+
+    m1, m2, m3, m4 = st.columns(4)
+    m1.metric("Số dòng dữ liệu", f"{len(export_df):,}")
+    m2.metric("Số cột", f"{len(cols)}")
+    m3.metric("Khoảng thời gian", span)
+    m4.metric("Wiki nhiều nhất", wiki_top)
+
+    left_sum, right_sum = st.columns([1, 1])
+    with left_sum:
+        st.caption("Phân bổ phân lớp thực thể trong file")
+        if len(actor_counts):
+            st.bar_chart(actor_counts.rename("Số dòng"))
+    with right_sum:
+        st.caption("Xem trước 5 dòng đầu của file CSV")
+        st.dataframe(export_df.head(5), width="stretch", hide_index=True)
+
     st.download_button(
-        "⬇️ Tải kết quả (CSV)",
-        df[cols].to_csv(index=False).encode("utf-8-sig"),
+        f"⬇️ Tải kết quả ({len(export_df):,} dòng, CSV)",
+        export_df.to_csv(index=False).encode("utf-8-sig"),
         file_name="wikimedia_actor_events.csv",
         mime="text/csv",
+        type="primary",
     )
+
+    with st.expander(f"Xem toàn bộ {len(export_df):,} dòng"):
+        st.dataframe(export_df, width="stretch", hide_index=True)
 else:
     st.caption("Chọn cấu hình ở thanh bên rồi bấm **Bắt đầu giám sát**.")

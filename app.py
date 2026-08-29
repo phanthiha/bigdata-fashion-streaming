@@ -381,6 +381,17 @@ def generate_3d_chart(rows):
     return fig
 
 
+def update_progress(bar, consumed, max_events, elapsed, duration):
+    """Cập nhật thanh tiến trình theo cả số bản ghi lẫn thời gian còn lại."""
+    fraction = min(max(consumed / max(max_events, 1), elapsed / max(duration, 1)), 1.0)
+    remaining = max(duration - elapsed, 0)
+    bar.progress(
+        fraction,
+        text=(f"Đã xử lý {consumed:,}/{max_events:,} bản ghi · "
+              f"{elapsed:.0f}s/{duration}s · còn ~{remaining:.0f}s"),
+    )
+
+
 # ==============================================================
 # 6. DASHBOARD
 # ==============================================================
@@ -447,6 +458,7 @@ def run_demo(source_name, analyzer, duration, max_events, delay, placeholder, mo
     stats = {"generated": 0, "delivered": 0, "consumed": 0, "failed": 0}
     rows, run_id = [], uuid.uuid4().hex[:8]
     started, last_render = time.monotonic(), 0.0
+    progress = st.progress(0.0, text="Đang khởi động luồng dữ liệu...")
 
     try:
         source = get_source(source_name)
@@ -468,12 +480,16 @@ def run_demo(source_name, analyzer, duration, max_events, delay, placeholder, mo
         if now - last_render >= 0.5:
             render_dashboard(placeholder, rows, stats, now - started,
                              duration, mode_label)
+            update_progress(progress, stats["consumed"], max_events,
+                            now - started, duration)
             last_render = now
         if delay:
             time.sleep(delay)
 
     render_dashboard(placeholder, rows, stats, time.monotonic() - started,
                      duration, mode_label)
+    progress.progress(1.0, text=f"Hoàn tất: {len(rows):,} bản ghi "
+                                f"trong {time.monotonic() - started:.0f} giây")
     return pd.DataFrame(rows)
 
 
@@ -574,6 +590,7 @@ def run_oci_stream(source_name, analyzer, duration, max_events, placeholder, mod
 
     rows = []
     started, last_render = time.monotonic(), 0.0
+    progress = st.progress(0.0, text="Đang kết nối OCI Streaming...")
     try:
         while time.monotonic() - started < duration and stats["consumed"] < max_events:
             elapsed = time.monotonic() - started
@@ -611,6 +628,8 @@ def run_oci_stream(source_name, analyzer, duration, max_events, placeholder, mod
                 label = mode_label + (" · fallback nội bộ" if state["fallback"] else "")
                 render_dashboard(placeholder, rows, stats, now - started,
                                  duration, label)
+                update_progress(progress, stats["consumed"], max_events,
+                                now - started, duration)
                 last_render = now
     finally:
         stop_event.set()
@@ -728,12 +747,47 @@ if "last_result" in st.session_state and not st.session_state["last_result"].emp
     export_cols = [c for c in
                    ["timestamp_utc", "amazon_rating", "title", "sentiment",
                     "emotion", "confidence"] if c in df.columns]
-    st.dataframe(df[export_cols], width="stretch", hide_index=True)
+    export_df = df[export_cols]
+
+    # --- Tóm tắt nội dung file trước khi tải ---
+    counts = export_df["emotion"].value_counts() if "emotion" in export_df else pd.Series(dtype=int)
+    top_emotion = counts.index[0] if len(counts) else "—"
+    if "timestamp_utc" in export_df and len(export_df):
+        span = f"{export_df['timestamp_utc'].iloc[0][11:19]} → {export_df['timestamp_utc'].iloc[-1][11:19]} UTC"
+    else:
+        span = "—"
+
+    m1, m2, m3, m4 = st.columns(4)
+    m1.metric("Số dòng dữ liệu", f"{len(export_df):,}")
+    m2.metric("Số cột", f"{len(export_cols)}")
+    m3.metric("Khoảng thời gian", span)
+    m4.metric("Nhãn phổ biến nhất", top_emotion)
+
+    if len(export_df) and "amazon_rating" in export_df:
+        bits = [f"Rating trung bình: **{export_df['amazon_rating'].mean():.2f}/5**"]
+        if "confidence" in export_df:
+            bits.append(f"Độ tin cậy trung bình của mô hình: "
+                        f"**{export_df['confidence'].mean():.2f}**")
+        st.caption(" · ".join(bits))
+
+    left_sum, right_sum = st.columns([1, 1])
+    with left_sum:
+        st.caption("Phân bổ nhãn cảm xúc trong file")
+        if len(counts):
+            st.bar_chart(counts.rename("Số dòng"))
+    with right_sum:
+        st.caption("Xem trước 5 dòng đầu của file CSV")
+        st.dataframe(export_df.head(5), width="stretch", hide_index=True)
+
     st.download_button(
-        "⬇️ Tải kết quả (CSV)",
-        df[export_cols].to_csv(index=False).encode("utf-8-sig"),
+        f"⬇️ Tải kết quả ({len(export_df):,} dòng, CSV)",
+        export_df.to_csv(index=False).encode("utf-8-sig"),
         file_name="ket_qua_sentiment.csv",
         mime="text/csv",
+        type="primary",
     )
+
+    with st.expander(f"Xem toàn bộ {len(export_df):,} dòng"):
+        st.dataframe(export_df, width="stretch", hide_index=True)
 else:
     st.caption("Chọn cấu hình ở thanh bên rồi bấm **Bắt đầu streaming**.")
