@@ -456,7 +456,7 @@ def run_stream(use_live, duration, max_events, wiki_filter, placeholder, mode_la
     thread.start()
 
     rows, started_at, last_render = [], time.monotonic(), 0.0
-    progress = st.progress(0.0, text="Đang kết nối nguồn dữ liệu...")
+    progress_slot.progress(0.0, text="Đang kết nối nguồn dữ liệu...")
     try:
         while time.monotonic() - started_at < duration and stats["consumed"] < max_events:
             try:
@@ -472,7 +472,7 @@ def run_stream(use_live, duration, max_events, wiki_filter, placeholder, mode_la
             if now - last_render >= 0.5:
                 render_dashboard(placeholder, rows, stats, started_at, duration,
                                  status["message"], mode_label)
-                update_progress(progress, stats["consumed"], max_events,
+                update_progress(progress_slot, stats["consumed"], max_events,
                                 now - started_at, duration)
                 last_render = now
     finally:
@@ -480,7 +480,7 @@ def run_stream(use_live, duration, max_events, wiki_filter, placeholder, mode_la
 
     render_dashboard(placeholder, rows, stats, started_at, duration,
                      status["message"], mode_label)
-    progress.progress(1.0, text=f"Hoàn tất: {len(rows):,} sự kiện "
+    progress_slot.progress(1.0, text=f"Hoàn tất: {len(rows):,} sự kiện "
                                 f"trong {time.monotonic() - started_at:.0f} giây")
     return pd.DataFrame(rows)
 
@@ -574,7 +574,7 @@ def run_kafka_stream(use_live, duration, max_events, wiki_filter, placeholder, m
     thread.start()
 
     rows, started_at, last_render = [], time.monotonic(), 0.0
-    progress = st.progress(0.0, text="Đang kết nối nguồn dữ liệu...")
+    progress_slot.progress(0.0, text="Đang kết nối nguồn dữ liệu...")
     try:
         while time.monotonic() - started_at < duration and stats["consumed"] < max_events:
             elapsed = time.monotonic() - started_at
@@ -614,7 +614,7 @@ def run_kafka_stream(use_live, duration, max_events, wiki_filter, placeholder, m
             if now - last_render >= 0.5:
                 render_dashboard(placeholder, rows, stats, started_at, duration,
                                  status["message"], mode_label)
-                update_progress(progress, stats["consumed"], max_events,
+                update_progress(progress_slot, stats["consumed"], max_events,
                                 now - started_at, duration)
                 last_render = now
     finally:
@@ -631,7 +631,7 @@ def run_kafka_stream(use_live, duration, max_events, wiki_filter, placeholder, m
 
     render_dashboard(placeholder, rows, stats, started_at, duration,
                      status["message"], mode_label)
-    progress.progress(1.0, text=f"Hoàn tất: {len(rows):,} sự kiện "
+    progress_slot.progress(1.0, text=f"Hoàn tất: {len(rows):,} sự kiện "
                                 f"trong {time.monotonic() - started_at:.0f} giây")
     return pd.DataFrame(rows)
 
@@ -697,6 +697,7 @@ if oci_check:
     (st.success if ok_check else st.error)(f"Kiểm tra kết nối OCI: {message_check}")
 
 start = st.button("▶️ Bắt đầu giám sát", type="primary")
+progress_slot = st.empty()
 placeholder = st.empty()
 
 if start:

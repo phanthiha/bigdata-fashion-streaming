@@ -458,7 +458,7 @@ def run_demo(source_name, analyzer, duration, max_events, delay, placeholder, mo
     stats = {"generated": 0, "delivered": 0, "consumed": 0, "failed": 0}
     rows, run_id = [], uuid.uuid4().hex[:8]
     started, last_render = time.monotonic(), 0.0
-    progress = st.progress(0.0, text="Đang khởi động luồng dữ liệu...")
+    progress_slot.progress(0.0, text="Đang khởi động luồng dữ liệu...")
 
     try:
         source = get_source(source_name)
@@ -480,7 +480,7 @@ def run_demo(source_name, analyzer, duration, max_events, delay, placeholder, mo
         if now - last_render >= 0.5:
             render_dashboard(placeholder, rows, stats, now - started,
                              duration, mode_label)
-            update_progress(progress, stats["consumed"], max_events,
+            update_progress(progress_slot, stats["consumed"], max_events,
                             now - started, duration)
             last_render = now
         if delay:
@@ -488,7 +488,7 @@ def run_demo(source_name, analyzer, duration, max_events, delay, placeholder, mo
 
     render_dashboard(placeholder, rows, stats, time.monotonic() - started,
                      duration, mode_label)
-    progress.progress(1.0, text=f"Hoàn tất: {len(rows):,} bản ghi "
+    progress_slot.progress(1.0, text=f"Hoàn tất: {len(rows):,} bản ghi "
                                 f"trong {time.monotonic() - started:.0f} giây")
     return pd.DataFrame(rows)
 
@@ -590,7 +590,7 @@ def run_oci_stream(source_name, analyzer, duration, max_events, placeholder, mod
 
     rows = []
     started, last_render = time.monotonic(), 0.0
-    progress = st.progress(0.0, text="Đang kết nối OCI Streaming...")
+    progress_slot.progress(0.0, text="Đang kết nối OCI Streaming...")
     try:
         while time.monotonic() - started < duration and stats["consumed"] < max_events:
             elapsed = time.monotonic() - started
@@ -628,7 +628,7 @@ def run_oci_stream(source_name, analyzer, duration, max_events, placeholder, mod
                 label = mode_label + (" · fallback nội bộ" if state["fallback"] else "")
                 render_dashboard(placeholder, rows, stats, now - started,
                                  duration, label)
-                update_progress(progress, stats["consumed"], max_events,
+                update_progress(progress_slot, stats["consumed"], max_events,
                                 now - started, duration)
                 last_render = now
     finally:
@@ -724,6 +724,7 @@ if oci_check:
 col_run, col_stop = st.columns([1, 5])
 start = col_run.button("▶️ Bắt đầu streaming", type="primary", width="stretch")
 
+progress_slot = st.empty()
 placeholder = st.empty()
 
 if start:
