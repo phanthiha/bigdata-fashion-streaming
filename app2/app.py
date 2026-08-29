@@ -460,7 +460,7 @@ def run_kafka_stream(use_live, duration, max_events, wiki_filter, placeholder, m
     lock = threading.Lock()
     stop_event = threading.Event()
     local_queue: "queue.Queue[bytes]" = queue.Queue()
-    state = {"fallback": False}
+    state = {"fallback": False, "produce": True}
 
     def delivery_report(err, _msg):
         with lock:
@@ -478,18 +478,22 @@ def run_kafka_stream(use_live, duration, max_events, wiki_filter, placeholder, m
                 continue
             payload = json.dumps(build_event(raw, run_id), ensure_ascii=False).encode("utf-8")
             local_queue.put(payload)
-            if not state["fallback"]:
+            # Vẫn gửi lên Kafka kể cả khi phần đọc đã chuyển sang hàng đợi nội bộ.
+            if state["produce"]:
                 try:
                     producer.produce(active_topic, value=payload, on_delivery=delivery_report)
                     producer.poll(0)
+                except BufferError:
+                    producer.poll(0.2)
                 except Exception as exc:
                     with lock:
-                        status["message"] = f"Chuyển sang hàng đợi nội bộ ({exc})"
-                    state["fallback"] = True
+                        stats["error"] = str(exc)
+                        status["message"] = f"Ngừng gửi lên OCI ({exc})"
+                    state["produce"] = False
             with lock:
                 stats["generated"] += 1
         try:
-            producer.flush(5)
+            producer.flush(10)
         except Exception:
             pass
 
@@ -513,12 +517,14 @@ def run_kafka_stream(use_live, duration, max_events, wiki_filter, placeholder, m
         while time.monotonic() - started_at < duration and stats["consumed"] < max_events:
             elapsed = time.monotonic() - started_at
 
-            if not state["fallback"] and elapsed > 12:
+            # Sau 20 giây consumer chưa nhận được bản ghi nào (thường do
+            # group rebalance) thì đọc hàng đợi nội bộ; producer vẫn gửi lên OCI.
+            if not state["fallback"] and elapsed > 20:
                 with lock:
-                    if stats["delivered"] == 0:
+                    if stats["consumed"] == 0:
                         state["fallback"] = True
-                        status["message"] = ("Không nhận được xác nhận từ OCI sau 12 giây "
-                                             "- dùng hàng đợi nội bộ")
+                        status["message"] = ("Consumer chưa nhận được bản ghi sau 20 giây "
+                                             "- đọc từ hàng đợi nội bộ")
 
             payload = None
             if not state["fallback"]:
@@ -549,7 +555,11 @@ def run_kafka_stream(use_live, duration, max_events, wiki_filter, placeholder, m
                 last_render = now
     finally:
         stop_event.set()
-        thread.join(timeout=2)
+        thread.join(timeout=6)
+        try:
+            producer.flush(5)
+        except Exception:
+            pass
         try:
             consumer.close()
         except Exception:

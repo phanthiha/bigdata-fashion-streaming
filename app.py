@@ -474,7 +474,7 @@ def run_oci_stream(source_name, analyzer, duration, max_events, placeholder, mod
     lock = threading.Lock()
     local_queue: "queue.Queue[bytes]" = queue.Queue()
     stop_event = threading.Event()
-    state = {"fallback": False}
+    state = {"fallback": False, "produce": True}
 
     def delivery_report(err, _msg):
         with lock:
@@ -492,15 +492,19 @@ def run_oci_stream(source_name, analyzer, duration, max_events, placeholder, mod
                 event = build_event(raw, analyzer, run_id)
                 payload = json.dumps(event, ensure_ascii=False).encode("utf-8")
                 local_queue.put(payload)
-                if not state["fallback"]:
+                # Luôn tiếp tục gửi lên Kafka, kể cả khi phần đọc đã chuyển
+                # sang hàng đợi nội bộ, để số liệu "Đã gửi OCI" phản ánh đúng.
+                if state["produce"]:
                     try:
                         producer.produce(active_topic, value=payload,
                                          on_delivery=delivery_report)
                         producer.poll(0)
+                    except BufferError:
+                        producer.poll(0.2)
                     except Exception as exc:
                         with lock:
                             stats["error"] = str(exc)
-                        state["fallback"] = True
+                        state["produce"] = False
                 with lock:
                     stats["generated"] += 1
         except Exception as exc:
@@ -508,7 +512,7 @@ def run_oci_stream(source_name, analyzer, duration, max_events, placeholder, mod
                 stats["error"] = f"Lỗi nguồn dữ liệu: {exc}"
         finally:
             try:
-                producer.flush(5)
+                producer.flush(10)
             except Exception:
                 pass
 
@@ -529,10 +533,12 @@ def run_oci_stream(source_name, analyzer, duration, max_events, placeholder, mod
         while time.monotonic() - started < duration and stats["consumed"] < max_events:
             elapsed = time.monotonic() - started
 
-            # Sau 12 giây chưa gửi được bản ghi nào -> chuyển sang local queue
-            if not state["fallback"] and elapsed > 12:
+            # Nếu sau 20 giây consumer vẫn chưa nhận được bản ghi nào
+            # (thường do group rebalance của OCI) thì đọc từ hàng đợi nội bộ,
+            # nhưng producer vẫn tiếp tục gửi lên OCI.
+            if not state["fallback"] and elapsed > 20:
                 with lock:
-                    if stats["delivered"] == 0:
+                    if stats["consumed"] == 0:
                         state["fallback"] = True
 
             payload = None
@@ -563,7 +569,11 @@ def run_oci_stream(source_name, analyzer, duration, max_events, placeholder, mod
                 last_render = now
     finally:
         stop_event.set()
-        thread.join(timeout=2)
+        thread.join(timeout=6)
+        try:
+            producer.flush(5)
+        except Exception:
+            pass
         try:
             consumer.close()
         except Exception:
