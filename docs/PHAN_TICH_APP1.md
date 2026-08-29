@@ -39,7 +39,7 @@ Hai luồng chạy song song: **thread Producer** vừa xử lý vừa đẩy s�
 
 **Bước 2 – Đọc dữ liệu theo luồng.** `requests.get(..., stream=True)` kết hợp `gzip.GzipFile` đọc từng dòng JSON ngay trong lúc tải, không giải nén toàn bộ 91 MB xuống đĩa.
 
-**Bước 3 – Chuẩn hoá bản ghi.** Lấy `overall` làm rating; nội dung lấy theo thứ tự `summary` → `title` → `reviewText`, thiếu thì gán "Không có tiêu đề"; cắt còn 500 ký tự trước khi đưa vào mô hình.
+**Bước 3 – Chuẩn hoá bản ghi.** Lấy `overall` làm rating; văn bản đưa vào mô hình là **`reviewText`** (nội dung đánh giá đầy đủ), chỉ dùng `summary` khi bản ghi thiếu nội dung — vì tiêu đề kiểu "Five Stars", "Too small" gần như không mang tín hiệu cảm xúc và khiến mô hình gán *Trung lập* hàng loạt. Cột `text_source` trong file CSV ghi lại đã dùng nguồn nào cho từng dòng. Văn bản được cắt 512 ký tự.
 
 **Bước 4 – Suy luận cảm xúc.** Mô hình `cardiffnlp/twitter-roberta-base-sentiment-latest` trả về nhãn (positive/neutral/negative) kèm độ tin cậy. Mô hình được nạp một lần và giữ trong cache (`@st.cache_resource`); nếu môi trường thiếu RAM hoặc thiếu torch, ứng dụng **tự chuyển** sang bộ luật rating + từ điển cảm xúc thay vì báo lỗi.
 

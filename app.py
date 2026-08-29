@@ -268,16 +268,27 @@ def label_emotion(amazon_rating: float, ai_label: str):
 
 def build_event(raw_record: dict, analyzer, run_id: str) -> dict:
     amazon_rating = float(raw_record.get("overall", raw_record.get("amazon_rating", 0.0)) or 0.0)
-    title = str(
-        raw_record.get("summary")
-        or raw_record.get("title")
-        or raw_record.get("reviewText")
+    # Ưu tiên NỘI DUNG đánh giá (reviewText); chỉ dùng tiêu đề khi bản ghi
+    # không có nội dung, vì tiêu đề kiểu "Five Stars" gần như không mang cảm xúc.
+    review_text = str(
+        raw_record.get("reviewText")
         or raw_record.get("review_text")
-        or "Không có tiêu đề"
-    ).strip() or "Không có tiêu đề"
+        or raw_record.get("text")
+        or ""
+    ).strip()
+    summary = str(
+        raw_record.get("summary") or raw_record.get("title") or ""
+    ).strip()
+
+    if review_text:
+        title, text_source = review_text, "reviewText"
+    elif summary:
+        title, text_source = summary, "summary (thiếu reviewText)"
+    else:
+        title, text_source = "Không có nội dung", "trống"
 
     try:
-        ai = analyzer(title[:500])[0]
+        ai = analyzer(title[:512])[0]
         ai_label, confidence = ai["label"], float(ai.get("score", 0.0))
     except Exception:
         ai_label, confidence = "neutral", 0.0
@@ -289,6 +300,8 @@ def build_event(raw_record: dict, analyzer, run_id: str) -> dict:
         "review_id": uuid.uuid4().hex[:12],
         "amazon_rating": amazon_rating,
         "title": title,
+        "summary": summary,
+        "text_source": text_source,
         "sentiment": effective,
         "emotion": emotion,
         "confidence": round(confidence, 4),
@@ -654,7 +667,7 @@ def run_oci_stream(source_name, analyzer, duration, max_events, placeholder, mod
 # 9. GIAO DIỆN CHÍNH
 # ==============================================================
 st.title("📊 Big Data Streaming – Phân tích độ hài lòng khách hàng")
-st.caption("Amazon Fashion → Phân tích cảm xúc (RoBERTa) → OCI Streaming (Kafka) → Dashboard thời gian thực")
+st.caption("Amazon Fashion → Phân tích cảm xúc **nội dung đánh giá (reviewText)** bằng RoBERTa → OCI Streaming (Kafka) → Dashboard thời gian thực")
 
 st.markdown(
     "> Dạ em chào Thầy! Em là **Phan Thị Hà** — MSHV: **C25611256**."
@@ -746,8 +759,8 @@ if "last_result" in st.session_state and not st.session_state["last_result"].emp
     st.divider()
     st.subheader("Kết quả chi tiết")
     export_cols = [c for c in
-                   ["timestamp_utc", "amazon_rating", "title", "sentiment",
-                    "emotion", "confidence"] if c in df.columns]
+                   ["timestamp_utc", "amazon_rating", "title", "text_source",
+                    "sentiment", "emotion", "confidence"] if c in df.columns]
     export_df = df[export_cols]
 
     # --- Tóm tắt nội dung file trước khi tải ---
