@@ -167,8 +167,8 @@ def resolve_topic(timeout: float = 10.0):
             "sasl.password": OCI_AUTH_TOKEN,
             "ssl.ca.location": certifi.where(),
         }).list_topics(timeout=timeout)
-    except Exception:
-        return TOPIC, ""
+    except Exception as exc:
+        return TOPIC, f"Không đọc được danh sách topic từ OCI: {exc}"
 
     if TOPIC in meta.topics:
         return TOPIC, ""
@@ -290,6 +290,11 @@ def render_dashboard(placeholder, rows, stats, started_at, duration, status_msg,
 
     with placeholder.container():
         st.caption(f"**Chế độ:** {mode_label} · **Trạng thái:** {status_msg}")
+
+        if stats.get("topic"):
+            st.caption(f"Topic đang dùng: `{stats['topic']}`")
+        if stats.get("error"):
+            st.warning(f"Kafka/OCI: {stats['error']}")
 
         c1, c2, c3, c4, c5 = st.columns(5)
         c1.metric("Sự kiện thu thập", f"{stats['generated']:,}")
@@ -449,7 +454,8 @@ def run_kafka_stream(use_live, duration, max_events, wiki_filter, placeholder, m
         "ssl.ca.location": certifi.where(),
     }
 
-    stats = {"generated": 0, "consumed": 0, "delivered": 0, "failed": 0}
+    stats = {"generated": 0, "consumed": 0, "delivered": 0, "failed": 0,
+             "error": "", "topic": active_topic}
     status = {"message": "Khởi tạo kết nối OCI Streaming..."}
     lock = threading.Lock()
     stop_event = threading.Event()
